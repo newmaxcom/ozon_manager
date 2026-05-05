@@ -14,6 +14,8 @@ class Plan {
       return { status: 400, message: "date is required" };
     }
 
+    await OzonPlanSchema.SellingModel.sync({ alter: false });
+
     const groupData = await createGroupData();
 
     const plan = await callAdaptPlan(date);

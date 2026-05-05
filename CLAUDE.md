@@ -32,6 +32,7 @@
 | Путь | Метод | Описание |
 |---|---|---|
 | `/plan/set.selling` | POST | принимает `{ date }`, тянет `CALL adaptPlan(date)`, фильтрует по существующим `ozon.ozon_cards_goods.nmid`, пишет в `ozon_plan.selling`. |
+| `/brand-monitor/run` | POST | сканирует Ozon-каталог по нашим брендам через Gologin (`ozon-dolg`), классифицирует карточки (свои / suspicious / паразиты), пишет в Google Sheets. Опц. `{ brand?: "OIRO" }` — прогнать один бренд из конфига. |
 | `/health` | GET | health-check |
 | `/metrics` | GET | Prometheus метрики |
 
@@ -50,10 +51,19 @@
 
 `mysql2/promise` pool в [utils/externalPlanDb.js](utils/externalPlanDb.js). Хранимая процедура `adaptPlan(date)` собирает агрегаты в исходной БД `ozon`. Возвращает строки с полями: `month`, `fk_nom_id` (с префиксом `OZON`), `supArt`, `sales_qty`, `sales_amount`, `order_qty`, `order_amount`, `profit`.
 
+## Brand-monitor
+
+- Конфиг брендов и spreadsheetId — [configs/brandMonitor.config.js](configs/brandMonitor.config.js): `BRANDS[]`, `OWN_SELLER_IDS`, `SPREADSHEET_ID`, `CABINET=DOLG`.
+- Оркестратор [services/BrandMonitor.service.js](services/BrandMonitor.service.js): для каждого бренда из конфига строит URL'ы → `POST http://dispatcher:41000/gologin/DOLG/ozon/brand-monitor/scan` → агрегирует карточки → пишет 5 листов через [utils/brandMonitorSheets.js](utils/brandMonitorSheets.js) (`google-spreadsheet` 4.x, JWT-auth из `GOOGLE_KEY*`).
+- Воркер ([gologin_service](../../Gologin/gologin_service/CLAUDE.md)) на стороне `ozon-dolg`: `withPageRaw` (без auth-check), перехват `entrypoint-api.bx` через `ResponseSniffer`, скролл с детектором стабильности, классификация (`OWN_BRAND_OFFICIAL` / `SUSPICIOUS_NO_BADGE` / `NAMING_PARASITE` / `OTHER`), enrichment sellerId через PDP (≤100 запросов, пауза 1.5–3 сек), возврат JSON.
+- Листы: «Ozon — свои», «Ozon — паразиты», «Ozon — сводка по продавцам», «Ozon — история» (append + `run_id`), «Ozon — лог».
+
 ## Связи
 
 - **[ozon_parser](../ozon_parser/CLAUDE.md)** — общая таблица `ozon.ozon_cards_goods` (наполняется парсером, читается здесь).
+- **[Gologin Dispatcher](../../Gologin/gologin_service/CLAUDE.md)** — `POST /gologin/DOLG/ozon/brand-monitor/scan` для brand-monitor.
 - **Внешний MySQL `ozon`** — источник плана.
+- **Google Sheets** (spreadsheetId в конфиге) — таргет brand-monitor.
 
 ## Что обычно меняют
 
