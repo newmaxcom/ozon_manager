@@ -14,32 +14,10 @@ export const BRAND_MONITOR_CONFIG = {
       keywords: ["oiro", "оиро"],
       categorySlug: "zhenskaya-odezhda-7501",
     },
-    {
-      name: "REIO",
-      brandId: null,
-      slug: "reio",
-      keywords: ["reio", "рейо", "реио"],
-      categorySlug: null,
-    },
-    {
-      name: "MUNI LACE",
-      brandId: null,
-      slug: "muni lace",
-      keywords: ["muni lace", "muni-lace", "munilace", "муни лэйс", "муни лейс", "мунилейс"],
-      categorySlug: null,
-    },
-    {
-      name: "Mirsea Charm",
-      brandId: null,
-      slug: "mirsea charm",
-      keywords: ["mirsea charm", "mirsea-charm", "mirseacharm", "мирси чарм", "мирсей чарм"],
-      categorySlug: null,
-    },
   ],
 };
 
 export function buildBrandPageUrl(brand) {
-  if (!brand?.brandId || !brand?.categorySlug) return null;
   const params = new URLSearchParams({
     brand_was_predicted: "true",
     category_was_predicted: "true",
