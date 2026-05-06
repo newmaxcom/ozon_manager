@@ -16,24 +16,37 @@ export const BRAND_MONITOR_CONFIG = {
     },
     {
       name: "REIO",
-      brandId: null,
+      brandId: 101913657,
       slug: "reio",
       keywords: ["reio", "рейо", "реио"],
-      categorySlug: null,
+      categorySlug: "zhenskaya-odezhda-7501",
     },
     {
       name: "MUNI LACE",
-      brandId: null,
+      brandId: 101899138,
       slug: "muni lace",
-      keywords: ["muni lace", "muni-lace", "munilace", "муни лэйс", "муни лейс", "мунилейс"],
-      categorySlug: null,
+      keywords: [
+        "muni lace",
+        "muni-lace",
+        "munilace",
+        "муни лэйс",
+        "муни лейс",
+        "мунилейс",
+      ],
+      categorySlug: "zhenskaya-odezhda-7501",
     },
     {
       name: "Mirsea Charm",
-      brandId: null,
+      brandId: 101967608,
       slug: "mirsea charm",
-      keywords: ["mirsea charm", "mirsea-charm", "mirseacharm", "мирси чарм", "мирсей чарм"],
-      categorySlug: null,
+      keywords: [
+        "mirsea charm",
+        "mirsea-charm",
+        "mirseacharm",
+        "мирси чарм",
+        "мирсей чарм",
+      ],
+      categorySlug: "zhenskaya-odezhda-7501",
     },
   ],
 };
@@ -47,7 +60,9 @@ export function buildBrandPageUrl(brand) {
     from_global: "true",
     text: brand.slug,
   });
-  return `https://www.ozon.ru/category/${brand.categorySlug}/${brand.slug}-${brand.brandId}/?${params.toString()}`;
+  return `https://www.ozon.ru/category/${brand.categorySlug}/${brand.slug}-${
+    brand.brandId
+  }/?${params.toString()}`;
 }
 
 export function buildSearchUrl(brand) {
