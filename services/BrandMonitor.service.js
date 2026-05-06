@@ -128,16 +128,17 @@ class BrandMonitor {
 
   _scanBrand = async (brand) => {
     const url = `/gologin/${BRAND_MONITOR_CONFIG.CABINET}/ozon/brand-monitor/scan`;
+    const urls = { search: buildSearchUrl(brand) };
+    const brandPage = buildBrandPageUrl(brand);
+    if (brandPage) urls.brandPage = brandPage;
+
     const body = {
       brand: {
         name: brand.name,
         brandId: brand.brandId,
         keywords: brand.keywords,
       },
-      urls: {
-        brandPage: buildBrandPageUrl(brand),
-        search: buildSearchUrl(brand),
-      },
+      urls,
       ownSellerIds: BRAND_MONITOR_CONFIG.OWN_SELLER_IDS,
       maxPdp: BRAND_MONITOR_CONFIG.MAX_PDP_PER_BRAND,
     };
