@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import router from "#routes/index";
 import { sequelize } from "#core/index";
+import flows from "#flows/index";
 import { metricsMiddleware, metricsHandler } from "#utils/metrics";
 
 export class App {
@@ -11,6 +12,7 @@ export class App {
     this.app = express();
     this.env = process.env.NODE_ENV || "development";
     this.port = this.env === "production" ? PORT : DEV_PORT;
+    this.flows = flows;
   }
 
   middlewares() {
@@ -44,6 +46,9 @@ export class App {
     this.healthCheck();
     this.metrics();
     this.routes();
+    if (this.env === "production") {
+      await this.flows();
+    }
 
     const serverInfo = `Server is running on port: ${this.port}`;
     this.app.listen(this.port, () => console.info(serverInfo));
