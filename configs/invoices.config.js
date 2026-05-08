@@ -2,7 +2,7 @@
 // (ozon_parser → ozon_report.invoices).
 export const INVOICES_CONFIG = {
   SPREADSHEET_ID: "1aiyNv_fTDJh1reYsz-qAC8TuvOeBqtUb1-ljBO4xRBU",
-  SHEET_TITLE: "Выплаты",
+  SHEET_TITLE: "Выплаты Ozon",
 };
 
 // docTypeSysName → Тип выплаты (берём как в LK Ozon).
