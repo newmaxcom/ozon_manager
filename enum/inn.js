@@ -12,5 +12,6 @@ export const enumOrganization = {
   SMRZ: "ИП Семен Мирзоев",
   TMOD: "ООО ТЕКС-МОД",
   SKOV: "ИП Сергей Коваль",
-  MUNI: "Muni Lace",
+  MUNI: "ООО ТЕКС-МОД (Muni Lace)",
+  GRVR: "ИП Дмитрий Мирзоев(Groover)",
 };
