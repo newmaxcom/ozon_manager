@@ -17,6 +17,9 @@ const OzonQueueModel = sequelize.define(
     timeslot_from: { type: DataTypes.STRING },
     timeslot_to: { type: DataTypes.STRING },
     order_id: { type: DataTypes.BIGINT },
+    order_number: { type: DataTypes.STRING },
+    supply_id: { type: DataTypes.BIGINT },
+    data_filling_deadline_utc: { type: DataTypes.STRING },
     state: { type: DataTypes.STRING },
     is_error: { type: DataTypes.BOOLEAN, defaultValue: false },
     error_text: { type: DataTypes.TEXT },
@@ -40,6 +43,7 @@ const OzonBoxesModel = sequelize.define(
     cargo_type: { type: DataTypes.STRING, defaultValue: "BOX" },
     items: { type: DataTypes.JSONB },
     label_file_guid: { type: DataTypes.STRING },
+    label_file_url: { type: DataTypes.STRING },
     ozon_status: { type: DataTypes.STRING },
   },
   {

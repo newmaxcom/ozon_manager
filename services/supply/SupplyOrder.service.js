@@ -110,11 +110,22 @@ class SupplyOrderService {
       );
     }
 
+    const orderApi = await this.getOrderApi(row.account);
+    const { data: details } = await orderApi.details(Number(orderId));
+    const firstSupply = details?.supplies?.[0];
+
     await row.update({
       order_id: orderId,
-      storage_warehouse_id: target.storage_warehouse_id,
-      macrolocal_cluster_id: target.macrolocal_cluster_id,
+      order_number: details?.order_number || null,
+      supply_id: firstSupply?.supply_id || null,
+      data_filling_deadline_utc: details?.data_filling_deadline_utc || null,
+      storage_warehouse_id:
+        firstSupply?.storage_warehouse?.warehouse_id ||
+        target.storage_warehouse_id,
+      macrolocal_cluster_id:
+        firstSupply?.macrolocal_cluster_id || target.macrolocal_cluster_id,
       bundle_id: target.bundle_id || row.bundle_id,
+      state: details?.state || null,
       timeslot_from: slot.from_in_timezone || slot.from,
       timeslot_to: slot.to_in_timezone || slot.to,
       is_error: false,

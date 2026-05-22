@@ -22,7 +22,11 @@ class CargoService {
   }
 
   async createCargoesForOrder(row) {
-    if (!row.order_id) throw new Error("order_id отсутствует");
+    if (!row.supply_id) {
+      throw new Error(
+        "supply_id отсутствует — заявка ещё не имеет привязанной поставки"
+      );
+    }
 
     const boxes = await OzonBoxesModel.findAll({
       where: {
@@ -36,7 +40,7 @@ class CargoService {
     const api = await this.getApi(row.account);
 
     const cargoes = boxes.map((b, idx) => ({
-      key: b.box_key || `${row.order_id}-${b.box_index ?? idx + 1}`,
+      key: b.box_key || `${row.supply_id}-${b.box_index ?? idx + 1}`,
       value: {
         type: b.cargo_type || "BOX",
         items: (b.items || []).map((i) => ({
@@ -51,7 +55,7 @@ class CargoService {
 
     const { data: created } = await api.cargoesCreate({
       cargoes,
-      supply_id: Number(row.order_id),
+      supply_id: Number(row.supply_id),
       delete_current_version: false,
     });
 
@@ -86,7 +90,7 @@ class CargoService {
 
     const updated = [];
     for (const b of boxes) {
-      const key = b.box_key || `${row.order_id}-${b.box_index}`;
+      const key = b.box_key || `${row.supply_id}-${b.box_index}`;
       const cargo_id = keyToCargoId.get(key);
       if (cargo_id) {
         await b.update({ cargo_id, box_key: key, ozon_status: "CREATED" });
@@ -127,7 +131,7 @@ class CargoService {
   }
 
   async createLabelsForOrder(row) {
-    if (!row.order_id) throw new Error("order_id отсутствует");
+    if (!row.supply_id) throw new Error("supply_id отсутствует");
     const boxes = await OzonBoxesModel.findAll({
       where: {
         order_id: row.order_id,
@@ -139,7 +143,7 @@ class CargoService {
 
     const api = await this.getApi(row.account);
     const { data: created } = await api.labelCreate({
-      supply_id: Number(row.order_id),
+      supply_id: Number(row.supply_id),
       cargoes: boxes.map((b) => ({ cargo_id: Number(b.cargo_id) })),
     });
 
@@ -151,12 +155,14 @@ class CargoService {
     }
 
     let fileGuid = null;
+    let fileUrl = null;
     let lastStatus = null;
     for (let i = 0; i < POLL_MAX; i++) {
       const { data: info } = await api.labelGet(opId);
       lastStatus = info;
       if (info.status === "SUCCESS" || info.status === "OK") {
         fileGuid = info.result?.file_guid;
+        fileUrl = info.result?.file_url;
         break;
       }
       if (info.status === "FAILED") {
@@ -164,14 +170,14 @@ class CargoService {
       }
       await this.delay(POLL_INTERVAL);
     }
-    if (!fileGuid) {
+    if (!fileGuid && !fileUrl) {
       throw new Error(`label/get timeout, last: ${JSON.stringify(lastStatus)}`);
     }
 
     for (const b of boxes) {
-      await b.update({ label_file_guid: fileGuid });
+      await b.update({ label_file_guid: fileGuid, label_file_url: fileUrl });
     }
-    return { file_guid: fileGuid };
+    return { file_guid: fileGuid, file_url: fileUrl };
   }
 
   async createLabels() {
