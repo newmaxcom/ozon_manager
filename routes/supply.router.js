@@ -1,7 +1,10 @@
 import Router from "express";
 import Controller from "#controllers/Supply";
+import verifyAccessToken from "#middlewares/verifyAccessToken";
 
 const router = Router();
+
+router.use(verifyAccessToken);
 
 router.get("/dashboard", Controller.dashboard);
 router.get("/boxes", Controller.boxes);

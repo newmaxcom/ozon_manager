@@ -4,6 +4,7 @@ import router from "#routes/index";
 import { sequelize } from "#core/index";
 import flows from "#flows/index";
 import { metricsMiddleware, metricsHandler } from "#utils/metrics";
+import OnecSupplySchema from "#models/onec_supply";
 
 export class App {
   constructor() {
@@ -41,6 +42,8 @@ export class App {
 
   async main() {
     await sequelize.openConnection();
+    await OnecSupplySchema.OzonQueueModel.sync();
+    await OnecSupplySchema.OzonBoxesModel.sync();
 
     this.middlewares();
     this.healthCheck();
