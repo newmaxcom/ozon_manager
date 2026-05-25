@@ -9,6 +9,8 @@ const OzonQueueModel = sequelize.define(
     doc_number: { type: DataTypes.STRING, primaryKey: true },
     order_numbers: { type: DataTypes.STRING, primaryKey: true },
     account: { type: DataTypes.STRING, primaryKey: true },
+    onec_prefix: { type: DataTypes.STRING },
+    plan_date: { type: DataTypes.DATEONLY },
     items: { type: DataTypes.JSONB },
     macrolocal_cluster_id: { type: DataTypes.BIGINT },
     draft_id: { type: DataTypes.BIGINT },
