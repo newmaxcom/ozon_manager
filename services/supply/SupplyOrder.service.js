@@ -1,12 +1,15 @@
 import { Op } from "sequelize";
 import OnecSupplySchema from "#models/onec_supply";
+import OzonSupplySchema from "#models/ozon_supply";
 import OzonAccounts from "#services/Account";
 import DraftApi from "../../api/draft.js";
 import SupplyOrderApi from "../../api/supplyOrder.js";
+import { triggerSupplyStatusRefresh } from "../../api/ozonParser.js";
 import DraftService from "./Draft.service.js";
 import BookingService from "./Booking.service.js";
 
 const { OzonQueueModel } = OnecSupplySchema;
+const { StatusModel } = OzonSupplySchema;
 
 const STATUS_POLL_INTERVAL = 3000;
 const STATUS_POLL_MAX = 40;
@@ -167,7 +170,9 @@ class SupplyOrderService {
     return results;
   }
 
-  async refreshStatus(row) {
+  // Force refresh для одной строки — live API call в Ozon.
+  // Использовать когда юзер ждать не хочет (cron парсера 1×/день в 03:10).
+  async forceRefreshRow(row) {
     if (!row.order_id) return null;
     const api = await this.getOrderApi(row.account);
     const { data } = await api.details(Number(row.order_id));
@@ -175,24 +180,65 @@ class SupplyOrderService {
     return data;
   }
 
+  // Bulk refresh — триггерит ozon_parser, который обновит ozon_supply.supply_status
+  // через /v3/supply-order/list + /v3/supply-order/get для всех кабинетов.
   async refreshStatuses() {
-    const rows = await OzonQueueModel.findAll({
-      where: { order_id: { [Op.not]: null } },
-    });
-    const out = [];
-    for (const row of rows) {
-      try {
-        const data = await this.refreshStatus(row);
-        out.push({ doc_number: row.doc_number, state: data?.state, ok: true });
-      } catch (error) {
-        out.push({
-          doc_number: row.doc_number,
-          ok: false,
-          error: error.message || String(error),
-        });
-      }
+    const started = Date.now();
+    try {
+      await triggerSupplyStatusRefresh();
+      return {
+        ok: true,
+        elapsed_ms: Date.now() - started,
+        source: "ozon-parser",
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        elapsed_ms: Date.now() - started,
+        error: error.message || String(error),
+      };
     }
-    return out;
+  }
+
+  async getDashboardRows() {
+    const rows = await OzonQueueModel.findAll({
+      order: [["updated_at", "DESC"]],
+      limit: 200,
+    });
+
+    const pairs = rows
+      .filter((r) => r.account && r.order_number)
+      .map((r) => ({ company: r.account, supply_id: String(r.order_number) }));
+    if (!pairs.length) {
+      return rows.map((r) => r.toJSON());
+    }
+
+    const statusRows = await StatusModel.findAll({
+      where: {
+        [Op.or]: pairs.map((p) => ({
+          company: p.company,
+          supply_id: p.supply_id,
+        })),
+      },
+      raw: true,
+    });
+    const statusByKey = new Map(
+      statusRows.map((s) => [`${s.company}::${s.supply_id}`, s])
+    );
+
+    return rows.map((r) => {
+      const json = r.toJSON();
+      const key = `${r.account}::${r.order_number}`;
+      const fromParser = statusByKey.get(key);
+      if (fromParser) {
+        json.state = fromParser.state || json.state;
+        json.state_source = "parser";
+        json.state_updated_date = fromParser.state_updated_date;
+      } else {
+        json.state_source = json.state ? "live" : null;
+      }
+      return json;
+    });
   }
 }
 

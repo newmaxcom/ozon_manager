@@ -55,7 +55,7 @@ class SupplyController {
   refreshStatuses = async (req, res) => {
     try {
       const result = await SupplyOrderService.refreshStatuses();
-      res.json({ result });
+      res.json(result);
     } catch (error) {
       console.error("refreshStatuses:", error);
       res.status(500).json({ error: error.message || String(error) });
@@ -115,13 +115,30 @@ class SupplyController {
 
   dashboard = async (req, res) => {
     try {
-      const rows = await OzonQueueModel.findAll({
-        order: [["created_at", "DESC"]],
-        limit: 200,
-      });
+      const rows = await SupplyOrderService.getDashboardRows();
       res.json({ rows });
     } catch (error) {
       console.error("dashboard:", error);
+      res.status(500).json({ error: error.message || String(error) });
+    }
+  };
+
+  forceRefresh = async (req, res) => {
+    try {
+      const { doc_number, order_numbers, account } = req.body || {};
+      if (!doc_number || !order_numbers || !account) {
+        return res
+          .status(400)
+          .json({ error: "doc_number, order_numbers, account обязательны" });
+      }
+      const row = await OzonQueueModel.findOne({
+        where: { doc_number, order_numbers, account },
+      });
+      if (!row) return res.status(404).json({ error: "Строка не найдена" });
+      const data = await SupplyOrderService.forceRefreshRow(row);
+      res.json({ ok: true, state: data?.state, data });
+    } catch (error) {
+      console.error("forceRefresh:", error);
       res.status(500).json({ error: error.message || String(error) });
     }
   };

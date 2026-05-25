@@ -19,6 +19,7 @@ router.get("/create.labels", Controller.createLabels);
 router.get("/label.file", Controller.labelFile);
 
 router.get("/refresh.statuses", Controller.refreshStatuses);
+router.post("/force.refresh", Controller.forceRefresh);
 
 router.post("/set.pass", Controller.setPass);
 
