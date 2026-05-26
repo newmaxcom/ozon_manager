@@ -266,6 +266,32 @@ class SupplyOrderService {
     }
   }
 
+  // Отмена заявки на поставку — /v1/supply-order/cancel + поллинг статуса.
+  async cancelOrder(row) {
+    if (!row.order_id) throw new Error("order_id отсутствует");
+    const api = await this.getOrderApi(row.account);
+    const { data: created } = await api.cancel(Number(row.order_id));
+    const opId = created.operation_id;
+    if (!opId) {
+      throw new Error("cancel без operation_id");
+    }
+    let last = null;
+    for (let i = 0; i < STATUS_POLL_MAX; i++) {
+      const { data: status } = await api.cancelStatus(opId);
+      last = status;
+      const s = status.status || status.result;
+      if (s === "SUCCESS" || s === "OK") {
+        await row.update({ state: "CANCELLED" });
+        return { ok: true, status };
+      }
+      if (s === "FAILED") {
+        throw new Error(`cancel FAILED: ${JSON.stringify(status)}`);
+      }
+      await this.delay(STATUS_POLL_INTERVAL);
+    }
+    throw new Error(`cancel timeout, last: ${JSON.stringify(last)}`);
+  }
+
   async getDashboardRows() {
     const rows = await OzonQueueModel.findAll({
       order: [["updated_at", "DESC"]],

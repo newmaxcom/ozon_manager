@@ -123,6 +123,26 @@ class SupplyController {
     }
   };
 
+  cancelOrder = async (req, res) => {
+    try {
+      const { doc_number, order_numbers, account } = req.body || {};
+      if (!doc_number || !order_numbers || !account) {
+        return res
+          .status(400)
+          .json({ error: "doc_number, order_numbers, account обязательны" });
+      }
+      const row = await OzonQueueModel.findOne({
+        where: { doc_number, order_numbers, account },
+      });
+      if (!row) return res.status(404).json({ error: "Строка не найдена" });
+      const result = await SupplyOrderService.cancelOrder(row);
+      res.json(result);
+    } catch (error) {
+      console.error("cancelOrder:", error);
+      res.status(500).json({ error: error.message || String(error) });
+    }
+  };
+
   forceRefresh = async (req, res) => {
     try {
       const { doc_number, order_numbers, account } = req.body || {};

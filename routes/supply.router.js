@@ -20,6 +20,7 @@ router.get("/label.file", Controller.labelFile);
 
 router.get("/refresh.statuses", Controller.refreshStatuses);
 router.post("/force.refresh", Controller.forceRefresh);
+router.post("/cancel", Controller.cancelOrder);
 
 router.post("/set.pass", Controller.setPass);
 
