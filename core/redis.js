@@ -12,6 +12,10 @@ const redisConfig = {
 // Отдельный клиент-публикатор (то же DB 13, что у onec-setter и wber_manager).
 const redisPublisher = new Redis(redisConfig);
 
+// Клиент DB 3 — там ozon_parser кэширует составы поставок:
+// ключ `ozon_supply/goods/{account}` → { id, supplies: { [supply_id]: [{barcode, acceptedQuantity, nmid}] } }
+export const redisParserCache = new Redis({ host, port, db: 3 });
+
 export async function publishEvent(channel, event) {
   try {
     await redisPublisher.publish(channel, JSON.stringify(event));

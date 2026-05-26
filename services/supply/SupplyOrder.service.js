@@ -5,6 +5,7 @@ import OzonAccounts from "#services/Account";
 import DraftApi from "../../api/draft.js";
 import SupplyOrderApi from "../../api/supplyOrder.js";
 import { triggerSupplyStatusRefresh } from "../../api/ozonParser.js";
+import { redisParserCache } from "#core/redis";
 import DraftService from "./Draft.service.js";
 import BookingService from "./Booking.service.js";
 
@@ -386,6 +387,23 @@ class SupplyOrderService {
       statusRows.map((s) => [`${s.company}::${s.supply_id}`, s])
     );
 
+    // Подтянем составы (incomes) из Redis DB 3 по каждому уникальному account.
+    // Структура: { supplies: { [supply_id]: [{barcode, acceptedQuantity, nmid}] } }
+    const accounts = Array.from(new Set(rows.map((r) => r.account)));
+    const incomesByAccount = new Map();
+    await Promise.all(
+      accounts.map(async (acc) => {
+        try {
+          const raw = await redisParserCache.get(`ozon_supply/goods/${acc}`);
+          if (!raw) return;
+          const parsed = JSON.parse(raw);
+          incomesByAccount.set(acc, parsed?.supplies || {});
+        } catch (err) {
+          console.warn(`incomes redis read fail (${acc}):`, err.message);
+        }
+      })
+    );
+
     // Counts по грузоместам для всех order_id одним запросом.
     const orderIds = rows
       .map((r) => r.order_id)
@@ -441,6 +459,22 @@ class SupplyOrderService {
             plan_qty: 0,
           }
         : { total: 0, with_cargo: 0, with_label: 0, plan_qty: 0 };
+      // Факт: incomes из Redis (DB 3, кэш парсера).
+      // Парсер пишет только для state=COMPLETED за последний месяц,
+      // ключ supply_id внутри = order.order_number из API.
+      const accIncomes = incomesByAccount.get(json.account);
+      const lookupKey = String(json.order_number || json.order_id || "");
+      const factItems = accIncomes?.[lookupKey];
+      if (Array.isArray(factItems)) {
+        json.items_fact_qty = factItems.reduce(
+          (acc, it) => acc + (Number(it.acceptedQuantity) || 0),
+          0
+        );
+        json.fact_items = factItems;
+      } else {
+        json.items_fact_qty = null;
+        json.fact_items = null;
+      }
       return json;
     });
   }
