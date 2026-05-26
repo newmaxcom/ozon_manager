@@ -5,6 +5,7 @@ import { sequelize } from "#core/index";
 import flows from "#flows/index";
 import { metricsMiddleware, metricsHandler } from "#utils/metrics";
 import OnecSupplySchema from "#models/onec_supply";
+import { redisPubSub } from "#utils/redisSub";
 
 export class App {
   constructor() {
@@ -44,6 +45,9 @@ export class App {
     await sequelize.openConnection();
     await OnecSupplySchema.OzonQueueModel.sync();
     await OnecSupplySchema.OzonBoxesModel.sync();
+    redisPubSub().catch((error) =>
+      console.error("redisPubSub failed:", error.message || error)
+    );
 
     this.middlewares();
     this.healthCheck();

@@ -90,6 +90,16 @@
 | Время (MSK) | Задача |
 |---|---|
 | 04:30 | `Invoices.pushToSheet` — выгрузка `ozon_report.invoices` в Google Sheet (после `setInvoices` парсера в 04:00) |
+| каждые 10 мин | `DraftService.createDrafts` — для строк очереди без `draft_id` |
+| 05/20/35/50 каждый час | `SupplyOrderService.createSupplies` — с авто-recreate черновика при DRAFT_DOES_NOT_EXIST/DRAFT_INCORRECT_STATE |
+| каждые 20 мин | `CargoService.createCargoes` + `createLabels` — догоняем pub/sub, если упал |
+| каждые 30 мин | `SupplyOrderService.refreshStatuses` — триггер парсера для свежего `ozon_supply.supply_status` |
+
+## Pub/Sub (Redis DB 13)
+
+| Канал | Кто публикует | Что делает manager |
+|---|---|---|
+| `ozon_compositions_saved` | onec-setter (`/supply/set.ozon.composition`) | `redisSub.js` находит queue row по `(doc_number, account)` → `CargoService.createCargoesForOrder` → если ok, `createLabelsForOrder` |
 
 ## Invoices (выплаты Ozon)
 

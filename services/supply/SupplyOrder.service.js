@@ -14,6 +14,18 @@ const { StatusModel } = OzonSupplySchema;
 const STATUS_POLL_INTERVAL = 3000;
 const STATUS_POLL_MAX = 40;
 
+// Ошибки, означающие что черновик протух (TTL 30 мин) или невалиден.
+// При них createSupplyForRow один раз пересоздаёт draft и пробует снова.
+const DRAFT_EXPIRED_REASONS = new Set([
+  "DRAFT_DOES_NOT_EXIST",
+  "DRAFT_INCORRECT_STATE",
+]);
+
+function isDraftExpiredError(reasons) {
+  if (!Array.isArray(reasons) || !reasons.length) return false;
+  return reasons.some((r) => DRAFT_EXPIRED_REASONS.has(r));
+}
+
 class SupplyOrderService {
   async getDraftApi(account) {
     const creds = await OzonAccounts.getById({ id: account });
@@ -35,82 +47,136 @@ class SupplyOrderService {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  // Пересоздаёт черновик: затирает draft_id и зовёт DraftService.createDraftForRow.
+  async recreateDraft(row) {
+    console.warn(
+      `[supply] draft ${row.draft_id} expired/invalid, recreating for ${row.doc_number}/${row.account}`
+    );
+    await row.update({ draft_id: null });
+    await DraftService.createDraftForRow(row);
+    await row.reload();
+    if (!row.draft_id) {
+      throw new Error("recreate draft failed: draft_id всё ещё null");
+    }
+  }
+
   async createSupplyForRow(row, { dateFrom, dateTo } = {}) {
     if (!row.draft_id) throw new Error("draft_id отсутствует");
 
-    const info = await DraftService.getDraftInfo(row.account, row.draft_id);
-    const target =
-      row.storage_warehouse_id && row.macrolocal_cluster_id
-        ? {
-            macrolocal_cluster_id: Number(row.macrolocal_cluster_id),
-            storage_warehouse_id: Number(row.storage_warehouse_id),
-            bundle_id: row.bundle_id,
-          }
-        : DraftService.selectBestWarehouse(info.clusters);
-
-    if (!target) throw new Error("Нет доступных складов в черновике");
-
-    const today = new Date();
-    const fmt = (d) => d.toISOString().slice(0, 10);
-    const df = dateFrom || fmt(today);
-    const dt =
-      dateTo ||
-      fmt(new Date(today.getTime() + 14 * 24 * 60 * 60 * 1000));
-
-    const timeslots = await BookingService.getTimeslots({
-      account: row.account,
-      draft_id: row.draft_id,
-      macrolocal_cluster_id: target.macrolocal_cluster_id,
-      storage_warehouse_id: target.storage_warehouse_id,
-      date_from: df,
-      date_to: dt,
-    });
-
-    const slot = BookingService.selectFirstAvailableTimeslot(timeslots.result);
-    if (!slot) throw new Error("Нет доступных таймслотов в выбранном окне");
-
-    const draftApi = await this.getDraftApi(row.account);
-    const { data: created } = await draftApi.supplyCreate({
-      draft_id: Number(row.draft_id),
-      supply_type: "DIRECT",
-      selected_cluster_warehouses: [
-        {
-          macrolocal_cluster_id: target.macrolocal_cluster_id,
-          storage_warehouse_id: target.storage_warehouse_id,
-        },
-      ],
-      timeslot: {
-        from_in_timezone: slot.from_in_timezone || slot.from,
-        to_in_timezone: slot.to_in_timezone || slot.to,
-      },
-    });
-
-    if (created.error_reasons?.length) {
-      throw new Error(JSON.stringify(created.error_reasons));
-    }
-
+    // До 2 попыток: при DRAFT_DOES_NOT_EXIST/DRAFT_INCORRECT_STATE пересоздаём
+    // черновик (30-минутный TTL) и пробуем снова.
+    let attempt = 0;
     let orderId = null;
-    let lastStatus = null;
-    for (let i = 0; i < STATUS_POLL_MAX; i++) {
-      const { data: status } = await draftApi.supplyCreateStatus(
-        Number(row.draft_id)
-      );
-      lastStatus = status;
-      if (status.status === "SUCCESS" && status.order_id) {
-        orderId = status.order_id;
-        break;
+    let target;
+    let slot;
+
+    while (attempt < 2 && !orderId) {
+      attempt++;
+
+      let info;
+      try {
+        info = await DraftService.getDraftInfo(row.account, row.draft_id);
+      } catch (error) {
+        if (attempt < 2 && /404|not.?found/i.test(String(error.message))) {
+          await this.recreateDraft(row);
+          continue;
+        }
+        throw error;
       }
-      if (status.status === "FAILED") {
+
+      if (info?.status && info.status !== "SUCCESS" && info.status !== "IN_PROGRESS") {
+        if (attempt < 2) {
+          await this.recreateDraft(row);
+          continue;
+        }
+        throw new Error(`draft/create/info status: ${info.status}`);
+      }
+
+      target =
+        row.storage_warehouse_id && row.macrolocal_cluster_id
+          ? {
+              macrolocal_cluster_id: Number(row.macrolocal_cluster_id),
+              storage_warehouse_id: Number(row.storage_warehouse_id),
+              bundle_id: row.bundle_id,
+            }
+          : DraftService.selectBestWarehouse(info.clusters);
+
+      if (!target) throw new Error("Нет доступных складов в черновике");
+
+      const today = new Date();
+      const fmt = (d) => d.toISOString().slice(0, 10);
+      const df = dateFrom || fmt(today);
+      const dt =
+        dateTo ||
+        fmt(new Date(today.getTime() + 14 * 24 * 60 * 60 * 1000));
+
+      const timeslots = await BookingService.getTimeslots({
+        account: row.account,
+        draft_id: row.draft_id,
+        macrolocal_cluster_id: target.macrolocal_cluster_id,
+        storage_warehouse_id: target.storage_warehouse_id,
+        date_from: df,
+        date_to: dt,
+      });
+
+      slot = BookingService.selectFirstAvailableTimeslot(timeslots.result);
+      if (!slot) throw new Error("Нет доступных таймслотов в выбранном окне");
+
+      const draftApi = await this.getDraftApi(row.account);
+      const { data: created } = await draftApi.supplyCreate({
+        draft_id: Number(row.draft_id),
+        supply_type: "DIRECT",
+        selected_cluster_warehouses: [
+          {
+            macrolocal_cluster_id: target.macrolocal_cluster_id,
+            storage_warehouse_id: target.storage_warehouse_id,
+          },
+        ],
+        timeslot: {
+          from_in_timezone: slot.from_in_timezone || slot.from,
+          to_in_timezone: slot.to_in_timezone || slot.to,
+        },
+      });
+
+      if (isDraftExpiredError(created.error_reasons) && attempt < 2) {
+        await this.recreateDraft(row);
+        continue;
+      }
+      if (created.error_reasons?.length) {
+        throw new Error(JSON.stringify(created.error_reasons));
+      }
+
+      let lastStatus = null;
+      let needRecreate = false;
+      for (let i = 0; i < STATUS_POLL_MAX; i++) {
+        const { data: status } = await draftApi.supplyCreateStatus(
+          Number(row.draft_id)
+        );
+        lastStatus = status;
+        if (status.status === "SUCCESS" && status.order_id) {
+          orderId = status.order_id;
+          break;
+        }
+        if (status.status === "FAILED") {
+          if (isDraftExpiredError(status.error_reasons) && attempt < 2) {
+            needRecreate = true;
+            break;
+          }
+          throw new Error(
+            `supplyCreate FAILED: ${JSON.stringify(status.error_reasons)}`
+          );
+        }
+        await this.delay(STATUS_POLL_INTERVAL);
+      }
+      if (needRecreate) {
+        await this.recreateDraft(row);
+        continue;
+      }
+      if (!orderId) {
         throw new Error(
-          `supplyCreate FAILED: ${JSON.stringify(status.error_reasons)}`
+          `supplyCreate timeout, last status: ${JSON.stringify(lastStatus)}`
         );
       }
-      await this.delay(STATUS_POLL_INTERVAL);
-    }
-    if (!orderId) {
-      throw new Error(
-        `supplyCreate timeout, last status: ${JSON.stringify(lastStatus)}`
-      );
     }
 
     const orderApi = await this.getOrderApi(row.account);
