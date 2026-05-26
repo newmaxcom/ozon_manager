@@ -208,6 +208,17 @@ class SupplyController {
     }
   };
 
+  statuses = async (req, res) => {
+    try {
+      const limit = Number(req.query.limit) || 500;
+      const rows = await SupplyOrderService.getAllSupplyStatuses({ limit });
+      res.json({ rows });
+    } catch (error) {
+      console.error("statuses:", error);
+      res.status(500).json({ error: error.message || String(error) });
+    }
+  };
+
   boxes = async (req, res) => {
     try {
       const { order_id } = req.query;

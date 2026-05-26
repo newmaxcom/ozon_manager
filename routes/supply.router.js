@@ -7,6 +7,7 @@ const router = Router();
 router.use(verifyAccessToken);
 
 router.get("/dashboard", Controller.dashboard);
+router.get("/statuses", Controller.statuses);
 router.get("/boxes", Controller.boxes);
 
 router.get("/draft.info", Controller.draftInfo);

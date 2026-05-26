@@ -308,6 +308,58 @@ class SupplyOrderService {
     throw new Error(`cancel timeout, last: ${JSON.stringify(last)}`);
   }
 
+  // Полный список поставок из ozon_supply.supply_status (наполняет
+  // ozon_parser). LEFT JOIN с очередью по (account, order_number),
+  // чтобы для своих документов подтянулись метаданные 1С.
+  async getAllSupplyStatuses({ limit = 500 } = {}) {
+    const statuses = await StatusModel.findAll({
+      order: [["state_updated_date", "DESC"]],
+      limit,
+      raw: true,
+    });
+    if (!statuses.length) return [];
+
+    const pairs = statuses.map((s) => ({
+      account: s.company,
+      order_number: s.supply_id,
+    }));
+    const queueRows = await OzonQueueModel.findAll({
+      where: {
+        [Op.or]: pairs.map((p) => ({
+          account: p.account,
+          order_number: p.order_number,
+        })),
+      },
+      raw: true,
+    });
+    const queueByKey = new Map(
+      queueRows.map((r) => [`${r.account}::${r.order_number}`, r])
+    );
+
+    return statuses.map((s) => {
+      const q = queueByKey.get(`${s.company}::${s.supply_id}`) || null;
+      return {
+        account: s.company,
+        order_number: s.supply_id,
+        state: s.state,
+        status: s.status,
+        state_updated_date: s.state_updated_date,
+        bundle_id: s.bundle_id,
+        // Наши метаданные (если поставка в очереди 1С):
+        in_queue: Boolean(q),
+        doc_number: q?.doc_number || null,
+        order_numbers: q?.order_numbers || null,
+        onec_prefix: q?.onec_prefix || null,
+        plan_date: q?.plan_date || null,
+        items: q?.items || null,
+        order_id: q?.order_id ? String(q.order_id) : null,
+        supply_id: q?.supply_id ? String(q.supply_id) : null,
+        is_error: q?.is_error || false,
+        error_text: q?.error_text || null,
+      };
+    });
+  }
+
   async getDashboardRows() {
     const rows = await OzonQueueModel.findAll({
       order: [["updated_at", "DESC"]],
