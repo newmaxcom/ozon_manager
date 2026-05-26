@@ -119,7 +119,15 @@ class SupplyOrderService {
         date_to: dt,
       });
 
-      slot = BookingService.selectFirstAvailableTimeslot(timeslots.result);
+      // Если пользователь выбрал слот заранее через /supply/select.slot,
+      // используем его. Иначе — первый доступный.
+      slot =
+        row.timeslot_from && row.timeslot_to
+          ? {
+              from_in_timezone: row.timeslot_from,
+              to_in_timezone: row.timeslot_to,
+            }
+          : BookingService.selectFirstAvailableTimeslot(timeslots.result);
       if (!slot) throw new Error("Нет доступных таймслотов в выбранном окне");
 
       const draftApi = await this.getDraftApi(row.account);
@@ -182,6 +190,14 @@ class SupplyOrderService {
     const orderApi = await this.getOrderApi(row.account);
     const { data: details } = await orderApi.details(Number(orderId));
     const firstSupply = details?.supplies?.[0];
+    if ((details?.supplies?.length || 0) > 1) {
+      // Для DIRECT-пайплайна (`/v1/draft/direct/create`) всегда одна поставка
+      // на заявку. Если внезапно пришло несколько — нужен multi-cluster
+      // refactor (отдельная таблица queue_supplies). Пока — кричим в логи.
+      console.warn(
+        `[supply] order ${orderId} contains ${details.supplies.length} supplies — берём supplies[0].supply_id=${firstSupply?.supply_id}, остальные игнорируются`
+      );
+    }
 
     await row.update({
       order_id: orderId,
