@@ -8,7 +8,7 @@ import { triggerSupplyStatusRefresh } from "../../api/ozonParser.js";
 import DraftService from "./Draft.service.js";
 import BookingService from "./Booking.service.js";
 
-const { OzonQueueModel } = OnecSupplySchema;
+const { OzonQueueModel, OzonBoxesModel } = OnecSupplySchema;
 const { StatusModel } = OzonSupplySchema;
 
 const STATUS_POLL_INTERVAL = 3000;
@@ -386,6 +386,36 @@ class SupplyOrderService {
       statusRows.map((s) => [`${s.company}::${s.supply_id}`, s])
     );
 
+    // Counts по грузоместам для всех order_id одним запросом.
+    const orderIds = rows
+      .map((r) => r.order_id)
+      .filter(Boolean)
+      .map(Number);
+    let boxCountsByOrder = new Map();
+    if (orderIds.length) {
+      const boxRows = await OzonBoxesModel.findAll({
+        where: { order_id: { [Op.in]: orderIds } },
+        raw: true,
+      });
+      for (const b of boxRows) {
+        const key = String(b.order_id);
+        const prev = boxCountsByOrder.get(key) || {
+          total: 0,
+          with_cargo: 0,
+          with_label: 0,
+          plan_qty: 0,
+        };
+        prev.total += 1;
+        if (b.cargo_id) prev.with_cargo += 1;
+        if (b.label_file_url || b.label_file_guid) prev.with_label += 1;
+        prev.plan_qty += (b.items || []).reduce(
+          (acc, it) => acc + (Number(it.quantity) || 0),
+          0
+        );
+        boxCountsByOrder.set(key, prev);
+      }
+    }
+
     return rows.map((r) => {
       const json = r.toJSON();
       const key = `${r.account}::${r.order_number}`;
@@ -397,6 +427,20 @@ class SupplyOrderService {
       } else {
         json.state_source = json.state ? "live" : null;
       }
+      // Сумма quantity из items[] (план из 1С)
+      json.items_plan_qty = (json.items || []).reduce(
+        (acc, it) => acc + (Number(it.quantity) || 0),
+        0
+      );
+      // Box-метрики
+      json.boxes = json.order_id
+        ? boxCountsByOrder.get(String(json.order_id)) || {
+            total: 0,
+            with_cargo: 0,
+            with_label: 0,
+            plan_qty: 0,
+          }
+        : { total: 0, with_cargo: 0, with_label: 0, plan_qty: 0 };
       return json;
     });
   }
