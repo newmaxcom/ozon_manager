@@ -3,6 +3,7 @@ import { bulkCreate } from "newmax-utils";
 import moment from "moment";
 import { callAdaptPlan } from "#utils/externalPlanDb";
 import createGroupData from "#utils/createGroupData";
+import syncPlanMpColor from "#utils/syncPlanMpColor";
 
 class Plan {
   constructor() {
@@ -67,6 +68,26 @@ class Plan {
     } catch (error) {
       console.log(error);
       return { status: 500 };
+    }
+
+    // Дублируем план в technical.plan_mp_color (кабинеты без НДС, nds=false).
+    // Best-effort: ошибка не должна валить основную запись в ozon_plan.selling.
+    try {
+      const res = await syncPlanMpColor({
+        rows: bulk.map((b) => ({
+          article: b.art_group,
+          company: b.company,
+          month: String(b.date).slice(0, 7) + "-01",
+          sales_qty: b.sales_qty,
+          sales_amount: b.sales_amount,
+          profit_amount: b.profit_amount,
+        })),
+        mp: "ozon",
+        fullNomMp: "oz",
+      });
+      console.log(`plan_mp_color[ozon]: upsert ${res.inserted}`);
+    } catch (error) {
+      console.log("plan_mp_color sync failed:", error);
     }
 
     return { status: 200, data: bulk };
