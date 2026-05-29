@@ -10,9 +10,14 @@ class Plan {
     this.schema = "plan";
   }
 
-  setSelling = async (payload = {}) => {
-    console.log("[plan/set.selling] payload:", JSON.stringify(payload));
-    const { date } = payload;
+  setSelling = async (payload = {}, query = {}) => {
+    console.log(
+      "[plan/set.selling] payload:",
+      JSON.stringify(payload),
+      "query:",
+      JSON.stringify(query)
+    );
+    const date = payload?.date || query?.date;
     if (!date) {
       return { status: 400, message: "date is required" };
     }
