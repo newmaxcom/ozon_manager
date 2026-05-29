@@ -10,7 +10,9 @@ class Plan {
     this.schema = "plan";
   }
 
-  setSelling = async ({ date } = {}) => {
+  setSelling = async (payload = {}) => {
+    console.log("[plan/set.selling] payload:", JSON.stringify(payload));
+    const { date } = payload;
     if (!date) {
       return { status: 400, message: "date is required" };
     }
@@ -56,6 +58,7 @@ class Plan {
     if (missing.length) console.log("missing keys:", missing);
 
     const bulk = Object.values(result);
+    console.log(`[plan/set.selling] bulk rows: ${bulk.length}`);
 
     try {
       await bulkCreate(OzonPlanSchema.SellingModel, bulk, [

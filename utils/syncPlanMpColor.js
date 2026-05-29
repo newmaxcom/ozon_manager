@@ -59,6 +59,9 @@ export default async function syncPlanMpColor({ rows, mp, fullNomMp }) {
     (r) =>
       r && r.article && r.company && r.month && !EXCLUDED_COMPANIES.has(r.company)
   );
+  console.log(
+    `syncPlanMpColor[${mp}]: вход ${rows.length}, после фильтра кабинетов ${planRows.length}`
+  );
   if (!planRows.length) return { inserted: 0 };
 
   const articles = [...new Set(planRows.map((r) => String(r.article)))];
@@ -164,6 +167,9 @@ export default async function syncPlanMpColor({ rows, mp, fullNomMp }) {
   }
 
   const values = [...byGrain.values()];
+  console.log(
+    `syncPlanMpColor[${mp}]: артикулов ${articles.length}, строк full_nom_new ${nomRows.length}, к upsert ${values.length}`
+  );
   if (!values.length) return { inserted: 0 };
 
   let inserted = 0;
