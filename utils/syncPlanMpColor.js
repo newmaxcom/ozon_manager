@@ -46,6 +46,14 @@ const vendorMatchesArticle = (vendorCode, article) => {
   return next === "" || !/[0-9]/.test(next);
 };
 
+// Стабильный хэш строки — для детерминированного выбора fallback-цвета по
+// артикулу (одинаков между запусками, иначе upsert плодил бы дубли).
+const hashStr = (s) => {
+  let h = 0;
+  for (let i = 0; i < s.length; i += 1) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return h;
+};
+
 /**
  * Дублирует план продаж Ozon в technical.plan_mp_color (грейн article+color_id+month+mp).
  *
@@ -107,6 +115,23 @@ export default async function syncPlanMpColor({ rows, mp }) {
       .push({ vendor_code: String(c.vendor_code), brand: c.brand, color_id: c.color_id });
   }
 
+  // Все валидные коды цветов — пул для fallback, когда у артикула ни один цвет
+  // не распознан (экзотические имена не из color_gude). Берём рандомный из них.
+  const codeRows = await sequelize.query(
+    `SELECT lpad(color_id::text, 2, '0') AS code
+       FROM technical.color_gude
+      WHERE color_id IS NOT NULL
+      ORDER BY color_id`,
+    { type: QueryTypes.SELECT }
+  );
+  const ALL_CODES = codeRows.map((r) => r.code);
+  // Стабильно «случайный» порядок кодов для артикула (ротация по хэшу).
+  const fallbackPool = (art) => {
+    if (!ALL_CODES.length) return [];
+    const off = hashStr(art) % ALL_CODES.length;
+    return ALL_CODES.slice(off).concat(ALL_CODES.slice(0, off));
+  };
+
   // Цвета (union по всем кабинетам артикула) + бренд по (кабинет, артикул).
   const colorsByArticle = new Map(); // article -> Set(color_id)
   const brandByKey = new Map(); // `${company}|${article}` -> brand
@@ -150,8 +175,13 @@ export default async function syncPlanMpColor({ rows, mp }) {
   }
 
   const colorAssign = new Map(); // `${company}|${article}` -> color
+  let fallbackArticles = 0;
   for (const [art, cabSet] of cabinetsByArticle) {
-    const all = [...(colorsByArticle.get(art) || [])].sort();
+    let all = [...(colorsByArticle.get(art) || [])].sort();
+    if (!all.length) {
+      all = fallbackPool(art); // цвет не распознан → рандомный из имеющихся кодов
+      if (all.length) fallbackArticles += 1;
+    }
     if (!all.length) continue;
     const ndsTaken = ndsColorsByArticle.get(art) || new Set();
     let pool = all.filter((c) => !ndsTaken.has(c));
@@ -194,6 +224,11 @@ export default async function syncPlanMpColor({ rows, mp }) {
     ]);
   }
 
+  if (fallbackArticles) {
+    console.log(
+      `syncPlanMpColor[${mp}]: ${fallbackArticles} артикулов без распознанного цвета — назначен рандомный код из color_gude`
+    );
+  }
   if (unresolved.size) {
     console.log(
       `syncPlanMpColor[${mp}]: нет цвета для ${unresolved.size} пар:`,
