@@ -5,6 +5,15 @@ import { callAdaptPlan } from "#utils/externalPlanDb";
 import createGroupData from "#utils/createGroupData";
 import syncPlanMpColor from "#utils/syncPlanMpColor";
 
+// Карточка относится к артикулу, если её vendor_code начинается с артикула
+// и следом не идёт ещё одна цифра (граница: '2161черныйF100' ✓ для '2161',
+// но не для '216'). vendor_code содержит цвет/размер — точного равенства нет.
+const vendorMatchesArticle = (vendorCode, article) => {
+  if (!vendorCode.startsWith(article)) return false;
+  const next = vendorCode.charAt(article.length);
+  return next === "" || !/[0-9]/.test(next);
+};
+
 class Plan {
   constructor() {
     this.schema = "plan";
@@ -24,7 +33,7 @@ class Plan {
 
     await OzonPlanSchema.SellingModel.sync({ alter: false });
 
-    const groupData = await createGroupData();
+    const byCompany = await createGroupData();
 
     const plan = await callAdaptPlan(date);
     console.log(`adaptPlan(${date}) -> ${plan.length} rows`);
@@ -33,14 +42,22 @@ class Plan {
     const missing = [];
 
     plan.forEach((item) => {
-      const key = String(item.fk_nom_id || "").replace("OZON", "");
-      const card = groupData[key];
-      if (!card) {
-        missing.push(key);
+      // company — префикс fk_nom_id (после OZON), артикул — supArt.
+      const rawKey = String(item.fk_nom_id || "").replace("OZON", "");
+      const company = rawKey.slice(0, 4);
+      const art_group = String(item.supArt ?? "").trim();
+      if (!company || !art_group) {
+        missing.push(rawKey);
         return;
       }
-      const { nmid, company } = card;
-      const art_group = String(item.supArt ?? "");
+      const cards = byCompany.get(company);
+      const card =
+        cards && cards.find((c) => vendorMatchesArticle(c.vendor_code, art_group));
+      if (!card) {
+        missing.push(`${company}|${art_group}`);
+        return;
+      }
+      const { nmid } = card;
 
       const rowDate = moment(item.month).format("YYYY-MM-DD");
       const month = moment(item.month).format("DD.MM.YYYY");
