@@ -10,7 +10,7 @@ class Plan {
     this.schema = "plan";
   }
 
-  setSelling = async ({ date }) => {
+  setSelling = async ({ date } = {}) => {
     if (!date) {
       return { status: 400, message: "date is required" };
     }
