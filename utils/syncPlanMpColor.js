@@ -1,6 +1,6 @@
 import { QueryTypes } from "sequelize";
 import { sequelize } from "#core/sequelize";
-import { enumOrganization } from "#enum/inn";
+import { enumOrganization } from "../enum/inn.js";
 
 // Кабинеты с НДС (ТЕКС-МОД / ИП Семён) уже наполняются planner-pro c nds=true.
 // Их пропускаем — добавляем только остальные кабинеты как nds=false.
