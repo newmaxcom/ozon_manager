@@ -108,7 +108,6 @@ class Plan {
           profit_amount: b.profit_amount,
         })),
         mp: "ozon",
-        fullNomMp: "oz",
       });
       console.log(`plan_mp_color[ozon]: upsert ${res.inserted}`);
     } catch (error) {

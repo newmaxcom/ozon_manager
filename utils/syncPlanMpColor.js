@@ -38,21 +38,31 @@ const fmtNum = (v) => {
   return s.includes(".") ? s : `${s}.0`;
 };
 
+// Карточка относится к артикулу, если vendor_code начинается с артикула и
+// дальше не идёт ещё одна цифра ('2161черныйF100' ✓ для '2161', но не для '216').
+const vendorMatchesArticle = (vendorCode, article) => {
+  if (!vendorCode.startsWith(article)) return false;
+  const next = vendorCode.charAt(article.length);
+  return next === "" || !/[0-9]/.test(next);
+};
+
 /**
- * Дублирует план продаж в technical.plan_mp_color (грейн article+color_id+month+mp).
+ * Дублирует план продаж Ozon в technical.plan_mp_color (грейн article+color_id+month+mp).
+ *
+ * Цвет/бренд берутся из ozon.ozon_cards_goods: карточка матчится по
+ * (кабинет + артикул) через vendor_code, код цвета — имя цвета карточки,
+ * переведённое через technical.color_gude (color_ru -> color_id -> '0N').
  *
  * Грейн таблицы не содержит кабинет, поэтому каждому кабинету артикула выдаём
- * СВОЙ код цвета этого артикула (детерминированно: сортируем кабинеты и
- * свободные цвета, раздаём по индексу). Цвета, уже занятые строками nds=true,
- * исключаем из пула. Upsert защищён `WHERE nds = false`, чтобы не затирать
- * официальный план кабинетов ТЕКС-МОД / ИП Семён.
+ * СВОЙ код цвета (детерминированно: сортируем кабинеты и свободные цвета,
+ * раздаём по индексу). Цвета, занятые строками nds=true, исключаем из пула.
+ * Upsert защищён `WHERE nds = false`, чтобы не затирать официальный план.
  *
- * @param {Object}   params
- * @param {Array}    params.rows       строки плана: { article, company, month:'YYYY-MM-01', sales_qty, sales_amount, profit_amount }
- * @param {string}   params.mp         значение plan_mp_color.mp ('wildberries' | 'ozon')
- * @param {string}   params.fullNomMp  значение full_nom_new.mp ('wb' | 'oz')
+ * @param {Object} params
+ * @param {Array}  params.rows  строки плана: { article, company, month:'YYYY-MM-01', sales_qty, sales_amount, profit_amount }
+ * @param {string} params.mp    значение plan_mp_color.mp ('ozon')
  */
-export default async function syncPlanMpColor({ rows, mp, fullNomMp }) {
+export default async function syncPlanMpColor({ rows, mp }) {
   if (!Array.isArray(rows) || !rows.length) return { inserted: 0 };
 
   const planRows = rows.filter(
@@ -65,25 +75,50 @@ export default async function syncPlanMpColor({ rows, mp, fullNomMp }) {
   if (!planRows.length) return { inserted: 0 };
 
   const articles = [...new Set(planRows.map((r) => String(r.article)))];
+  const companies = [...new Set(planRows.map((r) => r.company))];
 
-  // Справочник цветов и брендов из technical.full_nom_new.
-  const nomRows = await sequelize.query(
-    `SELECT company, mp_article, mp_color, brand
-       FROM technical.full_nom_new
-      WHERE mp = :fullNomMp
-        AND mp_article IN (:articles)
-        AND mp_color IS NOT NULL AND mp_color <> ''`,
-    { replacements: { fullNomMp, articles }, type: QueryTypes.SELECT }
+  const wantedByCompany = new Map(); // company -> Set(article)
+  for (const r of planRows) {
+    const art = String(r.article);
+    if (!wantedByCompany.has(r.company)) wantedByCompany.set(r.company, new Set());
+    wantedByCompany.get(r.company).add(art);
+  }
+
+  // Карточки Ozon: бренд + код цвета (имя цвета -> color_gude.color_id -> '0N').
+  const cardRows = await sequelize.query(
+    `SELECT c.company, c.vendor_code, c.brand,
+            lpad(g.color_id::text, 2, '0') AS color_id
+       FROM ozon.ozon_cards_goods c
+       LEFT JOIN technical.color_gude g ON lower(g.color_ru) = lower(c.color)
+      WHERE c.company IN (:companies)
+        AND c.vendor_code IS NOT NULL AND c.vendor_code <> ''`,
+    { replacements: { companies }, type: QueryTypes.SELECT }
   );
+  const cardsByCompany = new Map(); // company -> [{ vendor_code, brand, color_id }]
+  for (const c of cardRows) {
+    if (!cardsByCompany.has(c.company)) cardsByCompany.set(c.company, []);
+    cardsByCompany
+      .get(c.company)
+      .push({ vendor_code: String(c.vendor_code), brand: c.brand, color_id: c.color_id });
+  }
 
-  const colorsByArticle = new Map(); // article -> Set(color)
+  // Цвета (union по всем кабинетам артикула) + бренд по (кабинет, артикул).
+  const colorsByArticle = new Map(); // article -> Set(color_id)
   const brandByKey = new Map(); // `${company}|${article}` -> brand
-  for (const r of nomRows) {
-    const art = String(r.mp_article);
-    if (!colorsByArticle.has(art)) colorsByArticle.set(art, new Set());
-    colorsByArticle.get(art).add(String(r.mp_color));
-    const k = `${r.company}|${art}`;
-    if (r.brand && !brandByKey.has(k)) brandByKey.set(k, r.brand);
+  for (const [company, arts] of wantedByCompany) {
+    const cards = cardsByCompany.get(company) || [];
+    for (const art of arts) {
+      const matches = cards.filter((c) => vendorMatchesArticle(c.vendor_code, art));
+      if (!matches.length) continue;
+      if (!colorsByArticle.has(art)) colorsByArticle.set(art, new Set());
+      const set = colorsByArticle.get(art);
+      for (const m of matches) if (m.color_id) set.add(m.color_id);
+      const key = `${company}|${art}`;
+      if (!brandByKey.has(key)) {
+        const wb = matches.find((m) => m.brand);
+        if (wb) brandByKey.set(key, wb.brand);
+      }
+    }
   }
 
   // Цвета, занятые официальным планом (nds=true) — их upsert не перезапишет,
@@ -156,7 +191,7 @@ export default async function syncPlanMpColor({ rows, mp, fullNomMp }) {
 
   if (unresolved.size) {
     console.log(
-      `syncPlanMpColor[${mp}]: нет цвета в full_nom_new для ${unresolved.size} пар:`,
+      `syncPlanMpColor[${mp}]: нет цвета для ${unresolved.size} пар:`,
       [...unresolved]
     );
   }
@@ -168,7 +203,7 @@ export default async function syncPlanMpColor({ rows, mp, fullNomMp }) {
 
   const values = [...byGrain.values()];
   console.log(
-    `syncPlanMpColor[${mp}]: артикулов ${articles.length}, строк full_nom_new ${nomRows.length}, к upsert ${values.length}`
+    `syncPlanMpColor[${mp}]: артикулов ${articles.length}, карточек ${cardRows.length}, к upsert ${values.length}`
   );
   if (!values.length) return { inserted: 0 };
 
