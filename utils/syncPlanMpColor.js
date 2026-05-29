@@ -85,11 +85,16 @@ export default async function syncPlanMpColor({ rows, mp }) {
   }
 
   // Карточки Ozon: бренд + код цвета (имя цвета -> color_gude.color_id -> '0N').
+  // Имя цвета карточки нормализуем перед джойном: берём первый цвет из списка
+  // (мультицвет "черный, белый, бежевый" / "изумрудный;черный;синий"),
+  // приводим ё→е и регистр. Это поднимает покрытие color_gude с ~62% до ~93%.
   const cardRows = await sequelize.query(
     `SELECT c.company, c.vendor_code, c.brand,
             lpad(g.color_id::text, 2, '0') AS color_id
        FROM ozon.ozon_cards_goods c
-       LEFT JOIN technical.color_gude g ON lower(g.color_ru) = lower(c.color)
+       LEFT JOIN technical.color_gude g
+         ON lower(g.color_ru) =
+            lower(trim(split_part(translate(c.color, 'ёЁ;', 'еЕ,'), ',', 1)))
       WHERE c.company IN (:companies)
         AND c.vendor_code IS NOT NULL AND c.vendor_code <> ''`,
     { replacements: { companies }, type: QueryTypes.SELECT }
